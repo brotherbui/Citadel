@@ -11,13 +11,13 @@ public struct TTYSTDError: Error {
 }
 
 /// A pair of streams representing the stdout and stderr output of an executed command
-public struct ExecCommandStream {
+public struct ExecCommandStream: Sendable {
     /// An async stream of bytes representing the standard output
     public let stdout: AsyncThrowingStream<ByteBuffer, Error>
     /// An async stream of bytes representing the standard error
     public let stderr: AsyncThrowingStream<ByteBuffer, Error>
     
-    struct Continuation {
+    struct Continuation: Sendable {
         let stdout: AsyncThrowingStream<ByteBuffer, Error>.Continuation
         let stderr: AsyncThrowingStream<ByteBuffer, Error>.Continuation
         
@@ -44,7 +44,7 @@ public struct ExecCommandStream {
 }
 
 /// Represents the output from an executed command, either stdout or stderr data
-public enum ExecCommandOutput {
+public enum ExecCommandOutput: Sendable {
     /// Standard output data as a byte buffer
     case stdout(ByteBuffer)
     /// Standard error data as a byte buffer 
@@ -53,7 +53,7 @@ public enum ExecCommandOutput {
 
 /// An async sequence that provides TTY output data
 @available(macOS 15.0, *)
-public struct TTYOutput: AsyncSequence {
+public struct TTYOutput: AsyncSequence, Sendable {
     internal let sequence: AsyncThrowingStream<ExecCommandOutput, Error>
     public typealias Element = ExecCommandOutput
 
@@ -72,7 +72,7 @@ public struct TTYOutput: AsyncSequence {
 }
 
 /// Allows writing data to a TTY's standard input and controlling terminal properties
-public struct TTYStdinWriter {
+public struct TTYStdinWriter: Sendable {
     internal let channel: Channel
 
     /// Write raw bytes to the TTY's standard input
@@ -274,6 +274,7 @@ extension SSHClient {
 
         let hasReceivedChannelSuccess = NIOLockedValueBox<Bool>(false)
         let exitCode = NIOLockedValueBox<Int?>(nil)
+        let logger = self.logger
 
         let handler = ExecCommandHandler(logger: logger) { channel, output in
             switch output {
@@ -282,7 +283,7 @@ extension SSHClient {
             case .stderr(let stderr):
                 streamContinuation.yield(.stderr(stderr))
             case .eof(let error):
-                self.logger.debug("EOF triggered, ending the command stream.")
+                logger.debug("EOF triggered, ending the command stream.")
                 if let error {
                     streamContinuation.finish(throwing: error)
                 } else if let exitCode = exitCode.withLockedValue({ $0 }), exitCode != 0 {
@@ -300,7 +301,7 @@ extension SSHClient {
                     hasReceivedChannelSuccess.withLockedValue({ $0 = true })
                 }
             case .exit(let status):
-                self.logger.debug("Process exited with status code \(status). Will await on EOF for correct exit")
+                logger.debug("Process exited with status code \(status). Will await on EOF for correct exit")
                 exitCode.withLockedValue({ $0 = status })
             }
         }
@@ -464,9 +465,10 @@ extension SSHClient {
             stderr: stderrContinuation
         )
         
-        Task {
+        let stream = try await executeCommandStream(command, inShell: inShell)
+        
+        Task { @Sendable in
             do {
-                let stream = try await executeCommandStream(command, inShell: inShell)
                 for try await chunk in stream {
                     switch chunk {
                     case .stdout(let buffer):

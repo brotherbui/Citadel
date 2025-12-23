@@ -2,7 +2,7 @@ import Citadel
 import Crypto
 import Foundation
 import NIO
-import NIOSSH
+@preconcurrency import NIOSSH
 
 @main struct ExampleSSHServer {
     static func main() async throws {
@@ -60,7 +60,7 @@ import NIOSSH
     }
 }
 
-struct LoginHandler: NIOSSHServerUserAuthenticationDelegate {
+struct LoginHandler: NIOSSHServerUserAuthenticationDelegate, Sendable {
     let username: String
     let password: String
     

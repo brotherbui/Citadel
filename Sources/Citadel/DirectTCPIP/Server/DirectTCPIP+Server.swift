@@ -1,12 +1,12 @@
 import NIO
 import NIOSSH
 
-fileprivate final class ProxyChannelHandler: ChannelOutboundHandler {
+fileprivate final class ProxyChannelHandler: ChannelOutboundHandler, @unchecked Sendable {
     typealias OutboundIn = ByteBuffer
 
-    private let write: (ByteBuffer, EventLoopPromise<Void>?) -> Void
+    private let write: @Sendable (ByteBuffer, EventLoopPromise<Void>?) -> Void
 
-    init(write: @escaping (ByteBuffer, EventLoopPromise<Void>?) -> Void) {
+    init(write: @escaping @Sendable (ByteBuffer, EventLoopPromise<Void>?) -> Void) {
         self.write = write
     }
 

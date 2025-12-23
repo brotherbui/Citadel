@@ -2,7 +2,7 @@ import NIO
 import NIOSSH
 import Logging
 
-public enum ShellClientEvent {
+public enum ShellClientEvent: Sendable {
     case stdin(ByteBuffer)
 }
 
@@ -42,7 +42,7 @@ public struct ShellOutboundWriter: Sendable {
     }
 }
 
-final class ShellServerInboundHandler: ChannelInboundHandler {
+final class ShellServerInboundHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     
     let logger: Logger
@@ -70,18 +70,23 @@ final class ShellServerInboundHandler: ChannelInboundHandler {
         )
 
         let done = context.eventLoop.makePromise(of: Void.self)
+        let delegate = self.delegate
+        let inboundStream = self.inbound.stream
+        let outboundContinuation = self.outbound.continuation
+        let outboundStream = self.outbound.stream
+        
         done.completeWithTask {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    try await self.delegate.startShell(
-                        inbound: self.inbound.stream,
-                        outbound: ShellOutboundWriter(continuation: self.outbound.continuation),
+                    try await delegate.startShell(
+                        inbound: inboundStream,
+                        outbound: ShellOutboundWriter(continuation: outboundContinuation),
                         context: shellContext
                     )
                 }
 
                 group.addTask {
-                    for try await message in self.outbound.stream {
+                    for try await message in outboundStream {
                         switch message.event {
                         case .stdout(let data):
                             try await channel.writeAndFlush(data)
@@ -99,7 +104,9 @@ final class ShellServerInboundHandler: ChannelInboundHandler {
             }
         }
 
-        done.futureResult.whenFailure(context.fireErrorCaught)
+        done.futureResult.whenFailure { error in
+            context.fireErrorCaught(error)
+        }
     }
     
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {

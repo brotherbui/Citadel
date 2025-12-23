@@ -1,7 +1,7 @@
 import NIO
 import NIOSSH
 
-final class SSHChannelDataUnwrapper: ChannelInboundHandler {
+final class SSHChannelDataUnwrapper: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias InboundOut = ByteBuffer
 
@@ -27,7 +27,7 @@ final class SSHChannelDataUnwrapper: ChannelInboundHandler {
     }
 }
 
-final class SSHOutboundChannelDataWrapper: ChannelOutboundHandler {
+final class SSHOutboundChannelDataWrapper: ChannelOutboundHandler, @unchecked Sendable {
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = SSHChannelData
     
@@ -37,7 +37,7 @@ final class SSHOutboundChannelDataWrapper: ChannelOutboundHandler {
     }
 }
 
-final class SSHInboundChannelDataWrapper: ChannelInboundHandler {
+final class SSHInboundChannelDataWrapper: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = SSHChannelData
 

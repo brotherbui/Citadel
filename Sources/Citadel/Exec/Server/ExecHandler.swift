@@ -17,7 +17,7 @@ import Foundation
 import NIOCore
 import NIOFoundationCompat
 import NIOPosix
-import NIOSSH
+@preconcurrency import NIOSSH
 
 #if canImport(Darwin)
 import Darwin
@@ -37,7 +37,7 @@ enum SSHServerError: Error {
     case notListening
 }
 
-final class ExecHandler: ChannelDuplexHandler {
+final class ExecHandler: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias InboundOut = SSHChannelData
     typealias OutboundIn = SSHChannelData

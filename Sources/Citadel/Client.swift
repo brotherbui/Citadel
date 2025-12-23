@@ -1,7 +1,7 @@
 import NIO
 import Crypto
 import Logging
-import NIOSSH
+@preconcurrency import NIOSSH
 
 extension SSHAlgorithms.Modification<NIOSSHTransportProtection.Type> {
     func apply(to configuration: inout [any NIOSSHTransportProtection.Type]) {
@@ -56,12 +56,12 @@ extension SSHAlgorithms.Modification<(NIOSSHPublicKeyProtocol.Type, NIOSSHSignat
     }
 }
 
-public struct SSHAlgorithms: Sendable {
+public struct SSHAlgorithms: @unchecked Sendable {
     /// Represents a modification to a list of items.
     ///
     /// - replace: Replaces the existing list of items with the given list of items.
     /// - add: Adds the given list of items to the list of items.
-    public enum Modification<T: Sendable>: Sendable {
+    public enum Modification<T>: @unchecked Sendable {
         case replace(with: [T])
         case add([T])
     }
@@ -114,10 +114,10 @@ public struct SSHAlgorithms: Sendable {
 }
 
 /// Represents an SSH connection.
-public final class SSHClient {
+public final class SSHClient: @unchecked Sendable {
     private(set) var session: SSHClientSession
     private var userInitiatedClose = false
-    let authenticationMethod: () -> SSHAuthenticationMethod
+    let authenticationMethod: @Sendable () -> SSHAuthenticationMethod
     let hostKeyValidator: SSHHostKeyValidator
     internal var connectionSettings = SSHConnectionPoolSettings()
     private let algorithms: SSHAlgorithms
@@ -135,7 +135,7 @@ public final class SSHClient {
     
     init(
         session: SSHClientSession,
-        authenticationMethod: @escaping @autoclosure () -> SSHAuthenticationMethod,
+        authenticationMethod: @escaping @Sendable @autoclosure () -> SSHAuthenticationMethod,
         hostKeyValidator: SSHHostKeyValidator,
         algorithms: SSHAlgorithms = SSHAlgorithms(),
         protocolOptions: Set<SSHProtocolOption>
@@ -241,7 +241,7 @@ public final class SSHClient {
     /// - Returns: An SSH client.
     public static func connect(
         on channel: Channel,
-        authenticationMethod: @escaping @autoclosure () -> SSHAuthenticationMethod,
+        authenticationMethod: @escaping @Sendable @autoclosure () -> SSHAuthenticationMethod,
         hostKeyValidator: SSHHostKeyValidator,
         algorithms: SSHAlgorithms = SSHAlgorithms(),
         protocolOptions: Set<SSHProtocolOption> = []

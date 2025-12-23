@@ -1,6 +1,6 @@
 import Foundation
 import NIO
-import NIOSSH
+@preconcurrency import NIOSSH
 import Logging
 
 /// A remote port forward represents an active port forward on the remote SSH server.

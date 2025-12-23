@@ -98,7 +98,7 @@ final class ClientHandshakeHandler: ChannelInboundHandler, Sendable {
     }
 }
 
-public struct SSHClientSettings: Sendable {
+public struct SSHClientSettings: @unchecked Sendable {
     public var host: String
     public var port: Int
     public var authenticationMethod: @Sendable () -> SSHAuthenticationMethod
@@ -106,7 +106,7 @@ public struct SSHClientSettings: Sendable {
     public var algorithms: SSHAlgorithms = SSHAlgorithms()
     public var protocolOptions: Set<SSHProtocolOption> = []
     public var group: EventLoopGroup = MultiThreadedEventLoopGroup.singleton
-    internal var channelHandlers: [ChannelHandler & Sendable] = []
+    internal var channelHandlers: [ChannelHandler] = []
     public var connectTimeout: TimeAmount = .seconds(30)
 
     public init(

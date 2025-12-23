@@ -3,7 +3,7 @@ import Logging
 @preconcurrency import NIOSSH
 import NIOConcurrencyHelpers
 
-final class CloseErrorHandler: ChannelInboundHandler {
+final class CloseErrorHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = Any
     let logger: Logger
     
@@ -17,7 +17,7 @@ final class CloseErrorHandler: ChannelInboundHandler {
     }
 }
 
-final class SubsystemHandler: ChannelDuplexHandler {
+final class SubsystemHandler: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias InboundOut = SSHChannelData
     typealias OutboundIn = SSHChannelData

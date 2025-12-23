@@ -1,9 +1,9 @@
 import NIO
-import NIOSSH
+@preconcurrency import NIOSSH
 import Crypto
 
 /// Represents an authentication method.
-public final class SSHAuthenticationMethod: NIOSSHClientUserAuthenticationDelegate {
+public final class SSHAuthenticationMethod: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
     private enum Implementation {
         case custom(NIOSSHClientUserAuthenticationDelegate)
         case user(String, offer: NIOSSHUserAuthenticationOffer.Offer)
