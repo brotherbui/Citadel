@@ -443,7 +443,7 @@ extension OpenSSH.KDF {
             guard
                 let salt = options.readSSHBuffer(),
                 let rounds: UInt32 = options.readInteger(),
-                rounds < 18
+                rounds < 32
             else {
                 throw InvalidOpenSSHKey.invalidOrUnsupportedBCryptConfig
             }
