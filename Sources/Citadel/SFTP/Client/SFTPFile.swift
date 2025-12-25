@@ -141,8 +141,8 @@ public final class SFTPFile {
 
         self.logger.debug("SFTP starting pipelined read operation on file \(self.handle.sftpHandleDebugDescription), size: \(fileSize)")
 
-        let chunkSize: UInt64 = 32_000 // Match write chunk size
-        let maxConcurrentReads = 32 // Number of pipelined read requests
+        let chunkSize: UInt64 = 64_000 // Larger chunks for better throughput
+        let maxConcurrentReads = 64 // Number of pipelined read requests
         
         // Calculate number of chunks
         let numChunks = Int((fileSize + chunkSize - 1) / chunkSize)
@@ -238,8 +238,8 @@ public final class SFTPFile {
         guard self.isActive else { throw SFTPError.fileHandleInvalid }
         
         var data = data
-        let sliceLength = 32_000 // https://github.com/apple/swift-nio-ssh/issues/99
-        let maxConcurrentWrites = 32 // Number of pipelined write requests
+        let sliceLength = 64_000 // Larger chunks for better throughput
+        let maxConcurrentWrites = 64 // Number of pipelined write requests
         
         // Collect all chunks to write
         var chunks: [(offset: UInt64, data: ByteBuffer)] = []
