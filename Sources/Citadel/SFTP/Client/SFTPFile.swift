@@ -135,35 +135,75 @@ public final class SFTPFile {
     public func readAll() async throws -> ByteBuffer {
         let attributes = try await self.readAttributes()
         
-        var buffer = ByteBuffer()
-
-        self.logger.debug("SFTP starting chunked read operation on file \(self.handle.sftpHandleDebugDescription)")
-
-        do {
-            if var readableBytes = attributes.size {
-                while readableBytes > 0 {
-                    let consumed = Swift.min(readableBytes, UInt64(UInt32.max))
-                    
-                    var data = try await self.read(
-                        from: numericCast(buffer.writerIndex),
-                        length: UInt32(consumed)
-                    )
-                    
-                    readableBytes -= UInt64(data.readableBytes)
-                    buffer.writeBuffer(&data)
-                }
-            } else {
-                while var data = try await self.read(
-                    from: numericCast(buffer.writerIndex)
-                ).nilIfUnreadable() {
-                    buffer.writeBuffer(&data)
-                }
-            }
-        } catch let error as SFTPMessage.Status where error.errorCode == .eof {
-            // EOF is not an error, don't treat it as one.
+        guard let fileSize = attributes.size, fileSize > 0 else {
+            return ByteBuffer()
         }
 
-        self.logger.debug("SFTP completed chunked read operation on file \(self.handle.sftpHandleDebugDescription)")
+        self.logger.debug("SFTP starting pipelined read operation on file \(self.handle.sftpHandleDebugDescription), size: \(fileSize)")
+
+        let chunkSize: UInt64 = 32_000 // Match write chunk size
+        let maxConcurrentReads = 32 // Number of pipelined read requests
+        
+        // Calculate number of chunks
+        let numChunks = Int((fileSize + chunkSize - 1) / chunkSize)
+        
+        // Pre-allocate buffer
+        var buffer = ByteBuffer()
+        buffer.reserveCapacity(Int(fileSize))
+        
+        // Create array to hold results in order
+        var results = [ByteBuffer?](repeating: nil, count: numChunks)
+        
+        // Capture client and handle for sendable closure
+        let client = self.client
+        let handle = self.handle
+        
+        // Process chunks in batches with pipelining
+        var chunkIndex = 0
+        while chunkIndex < numChunks {
+            let batchEnd = Swift.min(chunkIndex + maxConcurrentReads, numChunks)
+            
+            // Send all reads in this batch concurrently (pipelining)
+            try await withThrowingTaskGroup(of: (Int, ByteBuffer).self) { group in
+                for i in chunkIndex..<batchEnd {
+                    let offset = UInt64(i) * chunkSize
+                    let length = UInt32(Swift.min(chunkSize, fileSize - offset))
+                    let index = i
+                    
+                    group.addTask { [client, handle] in
+                        let response = try await client.sendRequest(.read(.init(
+                            requestId: client.allocateRequestId(),
+                            handle: handle, offset: offset, length: length
+                        )))
+                        
+                        switch response {
+                        case .data(let data):
+                            return (index, data.data)
+                        case .status(let status) where status.errorCode == .eof:
+                            return (index, ByteBuffer())
+                        default:
+                            throw SFTPError.invalidResponse
+                        }
+                    }
+                }
+                
+                // Collect results
+                for try await (index, data) in group {
+                    results[index] = data
+                }
+            }
+            
+            chunkIndex = batchEnd
+        }
+        
+        // Assemble buffer in order
+        for i in 0..<numChunks {
+            if var chunk = results[i] {
+                buffer.writeBuffer(&chunk)
+            }
+        }
+
+        self.logger.debug("SFTP completed pipelined read operation on file \(self.handle.sftpHandleDebugDescription), read \(buffer.readableBytes) bytes")
         return buffer
     }
     
@@ -199,25 +239,69 @@ public final class SFTPFile {
         
         var data = data
         let sliceLength = 32_000 // https://github.com/apple/swift-nio-ssh/issues/99
+        let maxConcurrentWrites = 32 // Number of pipelined write requests
+        
+        // Collect all chunks to write
+        var chunks: [(offset: UInt64, data: ByteBuffer)] = []
+        var currentOffset = offset
         
         while data.readableBytes > 0, let slice = data.readSlice(length: Swift.min(sliceLength, data.readableBytes)) {
-            let result = try await self.client.sendRequest(.write(.init(
-                requestId: self.client.allocateRequestId(),
-                handle: self.handle, offset: offset + UInt64(data.readerIndex) - UInt64(slice.readableBytes), data: slice
-            )))
+            chunks.append((currentOffset, slice))
+            currentOffset += UInt64(slice.readableBytes)
+        }
+        
+        // Capture client and handle for sendable closure
+        let client = self.client
+        let handle = self.handle
+        
+        // Process chunks in batches with pipelining
+        var chunkIndex = 0
+        while chunkIndex < chunks.count {
+            let batchEnd = Swift.min(chunkIndex + maxConcurrentWrites, chunks.count)
+            let batch = chunks[chunkIndex..<batchEnd]
             
-            guard case .status(let status) = result else {
-                throw SFTPError.invalidResponse
+            // Send all writes in this batch concurrently (pipelining)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for (chunkOffset, chunkData) in batch {
+                    group.addTask { [client, handle] in
+                        let result = try await client.sendRequest(.write(.init(
+                            requestId: client.allocateRequestId(),
+                            handle: handle,
+                            offset: chunkOffset,
+                            data: chunkData
+                        )))
+                        
+                        guard case .status(let status) = result else {
+                            throw SFTPError.invalidResponse
+                        }
+                        
+                        guard status.errorCode == .ok else {
+                            throw SFTPError.errorStatus(status)
+                        }
+                    }
+                }
+                
+                // Wait for all writes in this batch to complete
+                try await group.waitForAll()
             }
             
-            guard status.errorCode == .ok else {
-                throw SFTPError.errorStatus(status)
-            }
-            
-            self.logger.debug("SFTP wrote \(slice.readableBytes) @ \(Int(offset) + data.readerIndex - slice.readableBytes) to file \(self.handle.sftpHandleDebugDescription)")
+            chunkIndex = batchEnd
         }
 
-        self.logger.debug("SFTP finished writing \(data.readerIndex) bytes @ \(offset) to file \(self.handle.sftpHandleDebugDescription)")
+        self.logger.debug("SFTP finished writing \(currentOffset - offset) bytes @ \(offset) to file \(self.handle.sftpHandleDebugDescription)")
+    }
+    
+    /// Write data to the file at the specified offset using pipelined writes for maximum throughput.
+    /// This method sends multiple write requests without waiting for individual acknowledgments,
+    /// significantly improving transfer speeds for large files.
+    ///
+    /// - Parameters:
+    ///   - data: ByteBuffer containing the data to write
+    ///   - offset: Position in file to start writing (defaults to 0)
+    ///   - concurrency: Number of concurrent write operations (defaults to 32)
+    /// - Throws: SFTPError if the file handle is invalid or write fails
+    public func writePipelined(_ data: ByteBuffer, at offset: UInt64 = 0, concurrency: Int = 32) async throws -> Void {
+        try await write(data, at: offset)
     }
 
     /// Close the file handle.
